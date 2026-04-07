@@ -1,4 +1,4 @@
-# Security Group
+
 resource "aws_security_group" "alb_sg" {
   name   = "alb-sg"
   vpc_id = aws_vpc.main.id
@@ -10,7 +10,7 @@ resource "aws_security_group" "alb_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Optional: allow HTTPS (recommended for real projects)
+  
   ingress {
     from_port   = 443
     to_port     = 443
@@ -26,7 +26,6 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# Load Balancer
 resource "aws_lb" "app_lb" {
   name               = "devops-alb"
   load_balancer_type = "application"
@@ -43,7 +42,7 @@ resource "aws_lb" "app_lb" {
   }
 }
 
-# Target Group
+
 resource "aws_lb_target_group" "tg" {
   name        = "devops-tg"
   port        = 3000
@@ -64,7 +63,7 @@ resource "aws_lb_target_group" "tg" {
   }
 }
 
-# Listener (FIXED - added protocol)
+
 resource "aws_lb_listener" "listener" {
   load_balancer_arn = aws_lb.app_lb.arn
   port              = 80

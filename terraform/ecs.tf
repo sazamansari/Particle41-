@@ -25,7 +25,7 @@ resource "aws_ecs_task_definition" "app" {
   ])
 }
 
-# ✅ ECS Security Group (ONLY allow from ALB)
+
 resource "aws_security_group" "ecs_sg" {
   name   = "ecs-sg"
   vpc_id = aws_vpc.main.id
@@ -34,7 +34,7 @@ resource "aws_security_group" "ecs_sg" {
     from_port       = 3000
     to_port         = 3000
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]   # 🔥 FIXED
+    security_groups = [aws_security_group.alb_sg.id]   
   }
 
   egress {
@@ -53,16 +53,16 @@ resource "aws_ecs_service" "app" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    # 🔥 FIX 1: Use PUBLIC subnets
+    
     subnets = [
       aws_subnet.public.id,
       aws_subnet.public_2.id
     ]
 
-    # 🔥 FIX 2: Attach SG
+   
     security_groups = [aws_security_group.ecs_sg.id]
 
-    # 🔥 FIX 3: Enable public IP
+   
     assign_public_ip = true
   }
 
@@ -72,6 +72,6 @@ resource "aws_ecs_service" "app" {
     container_port   = 3000
   }
 
-  # 🔥 FIX 4: Ensure ALB ready first
+  
   depends_on = [aws_lb_listener.listener]
 }
