@@ -31,11 +31,15 @@ The container image is publicly available on DockerHub:
 docker pull shadab1995/particle41devopschallenge:latest
 ```
 
+![DockerHub Image](docs/docker.png)
+
 You can run it locally with:
 ```bash
 docker run -p 3000:3000 shadab1995/particle41devopschallenge:latest
 curl http://localhost:3000
 ```
+
+![App Running Locally](docs/node.png)
 
 ---
 
@@ -51,6 +55,20 @@ curl http://localhost:3000
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml               # CI/CD pipeline (GitHub Actions)
+├── docs/                            # Screenshots and diagrams for this README
+│   ├── architecture.png             # AWS infrastructure diagram
+│   ├── cicd.png                     # CI/CD pipeline diagram
+│   ├── docker.png                   # DockerHub image page
+│   ├── node.png                     # App running locally
+│   ├── action.png                   # GitHub Actions pipeline view
+│   ├── github-action.png            # Successful Actions run
+│   ├── deploy.png                   # Live app response from ALB
+│   ├── vpc.png                      # AWS VPC console
+│   ├── plan.png                     # terraform plan output
+│   ├── terraform.png                # terraform init output
+│   ├── terraform-apply.png          # terraform apply running
+│   ├── terraform-apply-yes.png      # terraform apply confirmed
+│   └── terraform-destroy.png        # terraform destroy output
 └── terraform/
     ├── provider.tf                  # AWS provider config
     ├── vpc.tf                       # VPC, subnets, IGW, routing
@@ -86,6 +104,10 @@ The ALB acts as the single public entry point. It handles health checks, can rou
 ```
 Internet → Internet Gateway → ALB (port 80) → ECS Fargate Task (port 3000)
 ```
+
+Here's the VPC as it appears in the AWS console after deployment:
+
+![AWS VPC Console](docs/vpc.png)
 
 ---
 
@@ -141,72 +163,100 @@ You should see your account ID and IAM user ARN returned. If that works, Terrafo
 
 ## Deploying the Infrastructure
 
-Everything runs from the `terraform/` directory. These two commands are all you need:
+Everything runs from the `terraform/` directory. Follow these steps in order.
 
-**Step 1 — Initialise**
+---
 
-Downloads the AWS provider and sets up the working directory.
+### Step 1 — Clone the repo
+
+```bash
+git clone https://github.com/sazamansari/Particle41-.git
+cd Particle41-
+```
+
+---
+
+### Step 2 — Initialise Terraform
+
+Downloads the AWS provider plugin and prepares the working directory.
 
 ```bash
 cd terraform
 terraform init
 ```
 
-**Step 2 — Preview**
+![terraform init](docs/terraform.png)
 
-See exactly what will be created before anything touches your account. Read through the plan output — you should see 17 resources.
+---
+
+### Step 3 — Preview what will be created
+
+Always run a plan before applying. This shows you the exact 17 resources Terraform will create — without touching anything in your AWS account.
 
 ```bash
 terraform plan
 ```
 
-**Step 3 — Deploy**
+![terraform plan output](docs/plan.png)
+
+---
+
+### Step 4 — Deploy
 
 ```bash
 terraform apply
 ```
 
-Type `yes` when prompted. The full apply takes around 3–5 minutes. The ALB takes the longest to provision.
+Terraform will show the plan one more time and ask for confirmation. Type `yes` and press Enter.
 
-**Step 4 — Access the application**
+![terraform apply prompt](docs/terraform-apply.png)
 
-Once apply completes, the ALB DNS name is printed in the output:
+![terraform apply confirmed](docs/terraform-apply-yes.png)
+
+The full apply takes around 3–5 minutes. The ALB takes the longest to provision.
+
+---
+
+### Step 5 — Access the application
+
+Once apply completes, the ALB DNS name is printed in the outputs:
 
 ```bash
 terraform output alb_url
 ```
 
-Open it in a browser or test it directly:
+Open the URL in a browser. You should see:
 
-```bash
-curl http://<alb_url>
-```
+![Live app response from ALB](docs/deploy.png)
 
-You should get back:
 ```json
 {
-  "timestamp": "2026-04-08T06:45:00.000Z",
-  "ip": "your.ip.address.here"
+  "timestamp": "2026-04-07T22:19:24.929Z",
+  "ip": "38.137.54.45"
 }
 ```
 
-**Step 5 — Tear it down (important!)**
+---
 
-When you're finished, destroy everything to stop incurring AWS charges:
+### Step 6 — Tear it down (important!)
+
+When you're finished testing, destroy all resources to stop incurring AWS charges:
 
 ```bash
 terraform destroy
 ```
 
-Type `yes` to confirm. This removes all 17 resources created during apply.
+Type `yes` to confirm. This removes everything Terraform created.
+
+![terraform destroy](docs/terraform-destroy.png)
 
 ---
 
 ## CI/CD Pipeline (Extra Credit)
 
-The `deploy.yml` workflow in `.github/workflows/` automates the full build and deploy cycle on every push to `main`.
+The `deploy.yml` workflow in `.github/workflows/` automates the full build and deploy cycle on every push to `main`. No manual steps needed after the initial secrets setup.
 
-![CI/CD Pipeline](docs/cicd.png)
+![CI/CD Pipeline Diagram](docs/cicd.png)
 
 **What it does, in order:**
 
@@ -217,6 +267,12 @@ The `deploy.yml` workflow in `.github/workflows/` automates the full build and d
 5. Runs `terraform init`
 6. Runs `terraform validate` (catches config errors before touching AWS)
 7. Runs `terraform apply -auto-approve`
+
+Here's what a successful run looks like in GitHub Actions:
+
+![GitHub Actions Job Steps](docs/action.png)
+
+![GitHub Actions Successful Run](docs/github-action.png)
 
 **Setting it up in your fork:**
 
@@ -229,7 +285,7 @@ Go to **Settings → Secrets and variables → Actions** in your GitHub repo and
 | `AWS_ACCESS_KEY_ID` | Your IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | Your IAM secret access key |
 
-Once those are in place, pushing to `main` triggers the full pipeline — no manual deployment steps needed.
+Once those are in place, pushing to `main` triggers the full pipeline automatically.
 
 ---
 
