@@ -68,7 +68,8 @@ curl http://localhost:3000
 │   ├── terraform.png                # terraform init output
 │   ├── terraform-apply.png          # terraform apply running
 │   ├── terraform-apply-yes.png      # terraform apply confirmed
-│   └── terraform-destroy.png        # terraform destroy output
+│   ├── terraform-destroy.png        # terraform destroy output
+│   └── github-secrets.png           # GitHub Actions secrets setup
 └── terraform/
     ├── provider.tf                  # AWS provider config
     ├── vpc.tf                       # VPC, subnets, IGW, routing
@@ -284,6 +285,10 @@ Go to **Settings → Secrets and variables → Actions** in your GitHub repo and
 | `DOCKER_PASS` | Your DockerHub password or an access token |
 | `AWS_ACCESS_KEY_ID` | Your IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | Your IAM secret access key |
+
+Here's what the secrets page looks like once configured:
+
+![GitHub Actions Secrets](docs/github-secrets.png)
 
 Once those are in place, pushing to `main` triggers the full pipeline automatically.
 
