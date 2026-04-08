@@ -1,6 +1,6 @@
 # SimpleTimeService — Particle41 DevOps Challenge
 
-> ⚠️ **Heads up:** This deploys real AWS infrastructure that costs money. Don't forget to run `terraform destroy` when you're done or you'll get a bill at the end of the month.
+>  **Heads up:** This deploys real AWS infrastructure that costs money. Don't forget to run `terraform destroy` when you're done or you'll get a bill at the end of the month.
 
 ---
 
