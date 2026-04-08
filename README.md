@@ -1,22 +1,22 @@
 # SimpleTimeService — Particle41 DevOps Challenge
 
-> ⚠️ **Billing Notice:** Deploying this infrastructure creates real AWS resources that incur costs. Make sure you run `terraform destroy` when you are done to avoid unexpected charges.
+> ⚠️ **Heads up:** This deploys real AWS infrastructure that costs money. Don't forget to run `terraform destroy` when you're done or you'll get a bill at the end of the month.
 
 ---
 
-## What Is This?
+## Overview
 
-This repo is my submission for the Particle41 DevOps Team Challenge. The goal was to build a minimal web service, containerize it, and deploy it to the cloud in a production-style way using Terraform — with proper networking, a load balancer, and a CI/CD pipeline to tie it all together.
+My submission for the Particle41 DevOps challenge. I built a small Node.js service, containerised it with Docker, pushed the image to DockerHub, then deployed everything on AWS using Terraform — VPC, load balancer, ECS Fargate, the works. I also wired up a GitHub Actions pipeline so deploys happen automatically on every push.
 
-The application itself (`SimpleTimeService`) is intentionally tiny. It's a Node.js HTTP server with a single endpoint that returns the current timestamp and the caller's IP address as JSON. The interesting part is everything around it — the infrastructure, the container setup, and the automation.
+The service itself is simple by design. The challenge was never about the app — it's about getting it running properly in the cloud with real infrastructure around it.
 
 ---
 
-## The Application
+## The App
 
-**Endpoint:** `GET /`
+Single endpoint: `GET /`
 
-**Response:**
+Returns:
 ```json
 {
   "timestamp": "2026-04-08T06:45:00.000Z",
@@ -24,151 +24,142 @@ The application itself (`SimpleTimeService`) is intentionally tiny. It's a Node.
 }
 ```
 
-The IP is read from the `X-Forwarded-For` header, which means it correctly returns the real client IP even when the request comes through an ALB. If that header isn't present, it falls back to the socket's remote address.
+One thing worth mentioning — the IP is pulled from the `X-Forwarded-For` header. Behind an ALB that header gets set to the actual client IP, so this works correctly in production rather than just returning the ALB's internal address.
 
-The container image is publicly available on DockerHub:
-```
+The image is on DockerHub if you want to pull and test it directly:
+
+```bash
 docker pull shadab1995/particle41devopschallenge:latest
 ```
 
-![DockerHub Image](docs/docker.png)
+![DockerHub](docs/docker.png)
 
-You can run it locally with:
+Quick local test:
 ```bash
 docker run -p 3000:3000 shadab1995/particle41devopschallenge:latest
 curl http://localhost:3000
 ```
 
-![App Running Locally](docs/node.png)
+![Running locally](docs/node.png)
 
 ---
 
-## Repository Structure
+## Project Structure
 
 ```
 .
-├── server.js                        # Application source
+├── server.js                        # The app
 ├── package.json
-├── dockerfile                       # Container build definition
+├── dockerfile
 ├── .dockerignore
 ├── .gitignore
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml               # CI/CD pipeline (GitHub Actions)
-├── docs/                            # Screenshots and diagrams for this README
-│   ├── architecture.png             # AWS infrastructure diagram
-│   ├── cicd.png                     # CI/CD pipeline diagram
-│   ├── docker.png                   # DockerHub image page
-│   ├── node.png                     # App running locally
-│   ├── action.png                   # GitHub Actions pipeline view
-│   ├── github-action.png            # Successful Actions run
-│   ├── deploy.png                   # Live app response from ALB
-│   ├── vpc.png                      # AWS VPC console
-│   ├── plan.png                     # terraform plan output
-│   ├── terraform.png                # terraform init output
-│   ├── terraform-apply.png          # terraform apply running
-│   ├── terraform-apply-yes.png      # terraform apply confirmed
-│   ├── terraform-destroy.png        # terraform destroy output
-│   └── github-secrets.png           # GitHub Actions secrets setup
+│       └── deploy.yml               # GitHub Actions CI/CD
+├── docs/                            # Screenshots used in this README
+│   ├── architecture.png
+│   ├── cicd.png
+│   ├── docker.png
+│   ├── node.png
+│   ├── action.png
+│   ├── github-action.png
+│   ├── deploy.png
+│   ├── vpc.png
+│   ├── plan.png
+│   ├── terraform.png
+│   ├── terraform-apply.png
+│   ├── terraform-apply-yes.png
+│   ├── terraform-destroy.png
+│   └── github-secrets.png
 └── terraform/
-    ├── provider.tf                  # AWS provider config
+    ├── provider.tf
     ├── vpc.tf                       # VPC, subnets, IGW, routing
-    ├── alb.tf                       # Load balancer, target group, listener
-    ├── ecs.tf                       # ECS cluster, task definition, service
-    └── outputs.tf                   # Prints the ALB URL after apply
+    ├── alb.tf                       # ALB, target group, listener, security group
+    ├── ecs.tf                       # ECS cluster, task, service, security group
+    └── outputs.tf
 ```
 
 ---
 
-## Architecture & Why I Chose It
+## Architecture
 
-![AWS Architecture](docs/architecture.png)
+![Architecture diagram](docs/architecture.png)
 
-I went with **AWS ECS Fargate** behind an **Application Load Balancer**, all inside a custom VPC.
+I chose **ECS Fargate + ALB** over EKS or plain EC2 for a few reasons. Kubernetes is overkill for a single stateless service — you end up managing more infrastructure than the app itself. EC2 means patching and managing instances. Fargate hits the sweet spot: you get container-based deployments without the node management overhead.
 
-**Why Fargate over EKS or a plain EC2?**
-For a stateless microservice this small, Kubernetes would add significant operational overhead with very little benefit. Fargate gives you the container-native deployment model without having to manage nodes, autoscaling groups, or a control plane. It's the right-sized tool for this job — you define the task, and AWS runs it.
+The ALB sits in two public subnets across different AZs and forwards traffic to the Fargate task on port 3000. The ECS security group only allows inbound on port 3000 from the ALB security group — so there's no way to hit the container directly from the internet, only via the load balancer.
 
-**Why an ALB instead of a direct NAT or API Gateway?**
-The ALB acts as the single public entry point. It handles health checks, can route to multiple tasks if you scale out, and sits naturally in the public subnets while keeping the compute layer separated. The ECS security group (`ecs-sg`) only accepts traffic on port 3000 sourced from the ALB security group (`alb-sg`) — the containers are not reachable directly from the internet.
+**Network setup:**
 
-### Network Layout
-
-| Resource | CIDR / Detail |
+| Layer | Details |
 |---|---|
 | VPC | `10.0.0.0/16` |
-| Public Subnet A (`ap-south-1a`) | `10.0.1.0/24` — ALB lives here |
-| Public Subnet B (`ap-south-1b`) | `10.0.3.0/24` — ALB spans both AZs |
-| Private Subnet (`ap-south-1a`) | `10.0.2.0/24` — reserved for future hardening |
+| Public Subnet 1 | `10.0.1.0/24` — `ap-south-1a` |
+| Public Subnet 2 | `10.0.3.0/24` — `ap-south-1b` |
+| Private Subnet | `10.0.2.0/24` — `ap-south-1a` |
 
-**Traffic flow:**
+Traffic path:
 ```
-Internet → Internet Gateway → ALB (port 80) → ECS Fargate Task (port 3000)
+User → Internet Gateway → ALB (port 80) → ECS Task (port 3000)
 ```
 
-Here's the VPC as it appears in the AWS console after deployment:
+Here's how the VPC looks in the AWS console after deploying:
 
-![AWS VPC Console](docs/vpc.png)
+![VPC Console](docs/vpc.png)
 
 ---
 
 ## Prerequisites
 
-You'll need the following tools installed before deploying anything.
+Make sure you have these installed:
 
-| Tool | Why You Need It | Install |
-|---|---|---|
-| Terraform `>= 1.0` | Provisions all AWS infrastructure | [terraform.io/downloads](https://developer.hashicorp.com/terraform/install) |
-| AWS CLI `v2` | Configures your credentials locally | [AWS CLI install guide](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) |
-| Docker | To build/test the image locally (optional) | [docs.docker.com](https://docs.docker.com/get-docker/) |
-| Git | Cloning the repo | [git-scm.com](https://git-scm.com/downloads) |
+| Tool | Link |
+|---|---|
+| Terraform >= 1.0 | [Install](https://developer.hashicorp.com/terraform/install) |
+| AWS CLI v2 | [Install](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) |
+| Docker (optional, for local testing) | [Install](https://docs.docker.com/get-docker/) |
+| Git | [Install](https://git-scm.com/downloads) |
 
-You'll also need an **AWS account** and an IAM user with permissions for: EC2, VPC, ECS, ELBv2.
+You'll also need an AWS account with an IAM user that has permissions for EC2, VPC, ECS, and ELBv2.
 
 ---
 
-## Configuring AWS Credentials
+## AWS Credentials Setup
 
-> ⚠️ Never commit credentials to this repository. The `.gitignore` already excludes `.tfstate` and `.terraform/`. Keep your keys out of your code.
+Don't commit credentials anywhere near this repo. The `.gitignore` already covers `.tfstate` and `.terraform/` but the most important rule is: no keys in code.
 
-**Option 1 — AWS CLI (quickest for local use)**
+**Using AWS CLI:**
 
 ```bash
 aws configure
 ```
 
-You'll be prompted for:
-```
-AWS Access Key ID:     <your access key>
-AWS Secret Access Key: <your secret key>
-Default region name:   ap-south-1
-Default output format: json
-```
+Fill in your access key, secret, region (`ap-south-1`), and output format (`json`).
 
-**Option 2 — Environment variables**
+**Or with environment variables if you prefer:**
 
 ```bash
-export AWS_ACCESS_KEY_ID="your_access_key"
-export AWS_SECRET_ACCESS_KEY="your_secret_key"
+export AWS_ACCESS_KEY_ID="your_key"
+export AWS_SECRET_ACCESS_KEY="your_secret"
 export AWS_DEFAULT_REGION="ap-south-1"
 ```
 
-Once configured, verify it's working:
+Check it worked:
 ```bash
 aws sts get-caller-identity
 ```
 
-You should see your account ID and IAM user ARN returned. If that works, Terraform will pick up the same credentials automatically.
+If you see your account ID come back, you're good. Terraform automatically picks up whatever credentials the AWS CLI is configured with.
 
 ---
 
-## Deploying the Infrastructure
+## Deploying
 
-Everything runs from the `terraform/` directory. Follow these steps in order.
+All the Terraform files are in the `terraform/` directory. Run everything from there.
 
 ---
 
-### Step 1 — Clone the repo
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/sazamansari/Particle41-.git
@@ -177,9 +168,9 @@ cd Particle41-
 
 ---
 
-### Step 2 — Initialise Terraform
+### 2. `terraform init`
 
-Downloads the AWS provider plugin and prepares the working directory.
+This pulls down the AWS provider and sets up the local working directory.
 
 ```bash
 cd terraform
@@ -190,45 +181,51 @@ terraform init
 
 ---
 
-### Step 3 — Preview what will be created
+### 3. `terraform plan`
 
-Always run a plan before applying. This shows you the exact 17 resources Terraform will create — without touching anything in your AWS account.
+Run a plan first so you know exactly what's going to be created. You should see around 17 resources — VPC, subnets, IGW, route tables, security groups, ALB, target group, listener, ECS cluster, task definition, and service.
 
 ```bash
 terraform plan
 ```
 
-![terraform plan output](docs/plan.png)
+![terraform plan](docs/plan.png)
 
 ---
 
-### Step 4 — Deploy
+### 4. `terraform apply`
 
 ```bash
 terraform apply
 ```
 
-Terraform will show the plan one more time and ask for confirmation. Type `yes` and press Enter.
+Terraform will print the plan again and ask you to confirm. Type `yes`.
 
-![terraform apply prompt](docs/terraform-apply.png)
+![terraform apply](docs/terraform-apply.png)
 
-![terraform apply confirmed](docs/terraform-apply-yes.png)
+![confirming apply](docs/terraform-apply-yes.png)
 
-The full apply takes around 3–5 minutes. The ALB takes the longest to provision.
+Give it 3–5 minutes. Most of that wait is the ALB coming up.
 
 ---
 
-### Step 5 — Access the application
+### 5. Test the app
 
-Once apply completes, the ALB DNS name is printed in the outputs:
+When apply finishes, grab the ALB URL from the output:
 
 ```bash
 terraform output alb_url
 ```
 
-Open the URL in a browser. You should see:
+Paste it in a browser or `curl` it:
 
-![Live app response from ALB](docs/deploy.png)
+```bash
+curl http://<alb_url>
+```
+
+You should get something like:
+
+![Live response](docs/deploy.png)
 
 ```json
 {
@@ -239,97 +236,86 @@ Open the URL in a browser. You should see:
 
 ---
 
-### Step 6 — Tear it down (important!)
+### 6. Clean up
 
-When you're finished testing, destroy all resources to stop incurring AWS charges:
+When you're done, make sure you destroy the infrastructure:
 
 ```bash
 terraform destroy
 ```
 
-Type `yes` to confirm. This removes everything Terraform created.
+Type `yes`. Everything gets removed.
 
 ![terraform destroy](docs/terraform-destroy.png)
 
 ---
 
-## CI/CD Pipeline (Extra Credit)
+## CI/CD Pipeline
 
-The `deploy.yml` workflow in `.github/workflows/` automates the full build and deploy cycle on every push to `main`. No manual steps needed after the initial secrets setup.
+I set up GitHub Actions to handle builds and deploys automatically. Every push to `main` runs the full pipeline — build the image, push to DockerHub, then run `terraform apply` on AWS.
 
-![CI/CD Pipeline Diagram](docs/cicd.png)
+![Pipeline diagram](docs/cicd.png)
 
-**What it does, in order:**
+Steps in the pipeline:
 
-1. Checks out the code
-2. Builds the Docker image
-3. Authenticates to DockerHub and pushes the image
-4. Configures AWS credentials from GitHub secrets
-5. Runs `terraform init`
-6. Runs `terraform validate` (catches config errors before touching AWS)
-7. Runs `terraform apply -auto-approve`
+1. Checkout code
+2. Build Docker image
+3. Login to DockerHub, tag and push the image
+4. Configure AWS credentials
+5. `terraform init`
+6. `terraform validate`
+7. `terraform apply -auto-approve`
 
-Here's what a successful run looks like in GitHub Actions:
+A successful run in GitHub Actions:
 
-![GitHub Actions Job Steps](docs/action.png)
+![Actions steps](docs/action.png)
 
-![GitHub Actions Successful Run](docs/github-action.png)
+![Actions success](docs/github-action.png)
 
-**Setting it up in your fork:**
+**To set it up in your own fork**, add these four secrets under **Settings → Secrets and variables → Actions**:
 
-Go to **Settings → Secrets and variables → Actions** in your GitHub repo and add these four secrets:
-
-| Secret | What to put in it |
+| Secret | Value |
 |---|---|
-| `DOCKER_USER` | Your DockerHub username |
-| `DOCKER_PASS` | Your DockerHub password or an access token |
-| `AWS_ACCESS_KEY_ID` | Your IAM access key |
-| `AWS_SECRET_ACCESS_KEY` | Your IAM secret access key |
+| `DOCKER_USER` | DockerHub username |
+| `DOCKER_PASS` | DockerHub password or access token |
+| `AWS_ACCESS_KEY_ID` | IAM access key |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret key |
 
-Here's what the secrets page looks like once configured:
+![GitHub Secrets page](docs/github-secrets.png)
 
-![GitHub Actions Secrets](docs/github-secrets.png)
-
-Once those are in place, pushing to `main` triggers the full pipeline automatically.
+After that's done, any push to `main` triggers the full deployment automatically.
 
 ---
 
-## Running the App Locally (Without Docker)
+## Running Locally Without Docker
 
 ```bash
-# Install dependencies
 npm install
-
-# Start the server
 npm start
-
-# Test it
-curl http://localhost:3000
 ```
 
-The server starts on port 3000 by default.
+Server starts on port 3000. Hit `http://localhost:3000` to test.
 
 ---
 
-## Container Details
+## Docker Notes
 
-The Dockerfile is built on `node:alpine` for a minimal image footprint. It also runs as a non-root user (`appuser`) — which is a hard requirement from the challenge spec and a sensible security practice regardless.
+The image uses `node:alpine` as the base to keep the size down. The container also runs as a non-root user (`appuser`) — created inside the Dockerfile — which is a security requirement from the spec and generally just good practice.
 
-The `.dockerignore` excludes `node_modules`, `.git`, and a few other files to keep the build context clean and the final image lean.
-
----
-
-## What I'd Add With More Time
-
-- **Remote Terraform state** — An S3 backend with DynamoDB locking so the state doesn't live on a local machine. This is important when multiple people (or CI/CD runners) need to run Terraform against the same infrastructure.
-- **NAT Gateway + private subnet for ECS** — Moving the Fargate tasks into the private subnet with a NAT Gateway for outbound access. Currently tasks run in public subnets to simplify image pulling from DockerHub.
-- **ECS Execution IAM Role** — Adds the proper permissions for Fargate to pull images from ECR and write logs to CloudWatch.
-- **CloudWatch logging** — Pipe container stdout/stderr to a log group so you can actually see what's happening at runtime.
-- **Auto Scaling** — Scale the ECS service up and down based on CPU/memory usage instead of a fixed `desired_count = 1`.
+`node_modules` is excluded from the Docker build context via `.dockerignore`, so you're not accidentally copying platform-specific binaries from your local machine into the image.
 
 ---
 
-## Author
+## What I'd Do Differently With More Time
 
-**Md Shadab Azam Ansari**  
-Cloud & DevOps Engineer
+A few things I'd want to clean up if this were going to production:
+
+- **Remote state backend** — Right now `terraform.tfstate` is local. If the pipeline runs on GitHub Actions and the state isn't shared, it'll try to recreate resources that already exist. An S3 bucket with DynamoDB locking fixes this.
+- **NAT Gateway for private subnets** — The ECS tasks currently run in public subnets with a public IP so they can pull from DockerHub. The cleaner approach is private subnets + a NAT Gateway for outbound traffic.
+- **IAM Execution Role for ECS** — The task definition doesn't have an `execution_role_arn`, which means it has no permissions to pull from ECR or write to CloudWatch Logs. Works for public DockerHub images but would break with ECR.
+- **CloudWatch Logs** — Without a log configuration in the container definition, there's no way to see what the application is doing at runtime.
+- **Auto scaling** — `desired_count = 1` is fine for testing but you'd want to hook up Application Auto Scaling in a real environment.
+
+---
+
+**Md Shadab Azam Ansari**
